@@ -2,18 +2,16 @@
 
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from PyInstaller.utils.hooks import collect_data_files
 
-project_dir = Path(__file__).resolve().parent
+project_dir = Path(SPECPATH).resolve()
 
 asset_dir = project_dir / "assets"
 env_file = project_dir / ".env"
 
-hiddenimports = []
-hiddenimports += collect_submodules("google.genai")
-hiddenimports += collect_submodules("google.api_core")
-hiddenimports += collect_submodules("google.auth")
-hiddenimports += [
+hiddenimports = [
+    "google.genai",
+    "google.genai.types",
     "google.api_core.exceptions",
     "win32timezone",
 ]

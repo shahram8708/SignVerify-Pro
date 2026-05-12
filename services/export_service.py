@@ -272,7 +272,7 @@ class ExportService:
 
             story.append(Spacer(1, 1.6 * cm))
             story.append(Paragraph("Signature Verification Report", styles["title"]))
-            story.append(Paragraph("AI-Assisted Forensic Analysis · Google Gemini 2.5 Flash", styles["subtitle"]))
+            story.append(Paragraph("AI-Assisted Forensic Analysis · SignVerify Pro", styles["subtitle"]))
             story.append(Spacer(1, 8))
 
             summary_table = Table(
@@ -407,7 +407,7 @@ class ExportService:
             story.append(Spacer(1, 12))
 
             footer_note = (
-                "This report was generated automatically by SignVerify Pro using Google Gemini 2.5 Flash multimodal "
+                "This report was generated automatically by SignVerify Pro using SignVerify Pro multimodal "
                 "AI analysis. It constitutes an AI-assisted forensic assessment and does not replace a formal "
                 "examination by a Certified Forensic Document Examiner (FDE). "
                 f"Verification ID: {verification_id} · SHA-256 Hash: {response_hash}"
