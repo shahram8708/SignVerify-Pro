@@ -1,0 +1,13 @@
+PyQt6
+SQLAlchemy
+google-genai
+opencv-python-headless
+Pillow
+mss
+cryptography
+reportlab
+numpy
+pyinstaller
+python-dotenv
+pywin32
+psutil
