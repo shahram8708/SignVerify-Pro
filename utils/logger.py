@@ -19,7 +19,7 @@ class SensitiveDataFilter(logging.Filter):
 
     forbidden_fragments = (
         "AIza",
-        "gemini_api_key",
+        "model_path",
         "thumbnail_blob",
         "decrypted",
     )

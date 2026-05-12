@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from datetime import datetime
-from urllib import error, request
+import os
+from pathlib import Path
 
 import cv2
 import mss
+import torch
 from PyQt6.QtCore import QThread, QTimer, Qt, QUrl, pyqtSignal
 from PyQt6.QtGui import QDesktopServices, QImage, QPixmap
 from PyQt6.QtWidgets import (
@@ -15,6 +17,7 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
     QDoubleSpinBox,
+    QFileDialog,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -46,48 +49,32 @@ from controllers.settings_controller import settings_controller
 from ui.base_screen import BaseScreen
 from utils.licence_manager import LicenceManager
 from utils.logger import get_logger
-from utils.validators import validate_api_key
 
 logger = get_logger(__name__)
 BUILD_TIMESTAMP = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
-class APIConnectionWorker(QThread):
+class ModelTestWorker(QThread):
     completed = pyqtSignal(bool, str)
 
-    def __init__(self, api_key: str) -> None:
-        super().__init__()
-        self.api_key = api_key
-
     def run(self) -> None:
-        if not self.api_key:
-            self.completed.emit(False, "✗ API key is required")
-            return
-
-        url = f"https://generativelanguage.googleapis.com/v1beta/models?key={self.api_key}"
         try:
-            req = request.Request(url, method="GET")
-            with request.urlopen(req, timeout=10) as response:
-                if response.status == 200:
-                    self.completed.emit(True, "✓ Connection successful")
-                else:
-                    self.completed.emit(False, "✗ Invalid API key")
-        except error.HTTPError as exc:
-            if exc.code in {400, 401, 403}:
-                self.completed.emit(False, "✗ Invalid API key")
+            from services.local_model_service import LocalModelService
+
+            ready, message = LocalModelService().ping()
+            if ready:
+                self.completed.emit(True, "✓ Model loaded and ready")
             else:
-                self.completed.emit(False, f"✗ Connection failed ({exc.code})")
-        except error.URLError:
-            self.completed.emit(False, "✗ Network error")
-        except Exception:
-            self.completed.emit(False, "✗ Connection test failed")
+                self.completed.emit(False, f"✗ {message}")
+        except Exception as exc:
+            self.completed.emit(False, f"✗ Model test failed: {exc}")
 
 
 class SettingsScreen(BaseScreen):
     def __init__(self, parent=None) -> None:
         self.controller = settings_controller
         self.licence_manager = LicenceManager.get_instance()
-        self._api_worker: APIConnectionWorker | None = None
+        self._model_test_worker: ModelTestWorker | None = None
         super().__init__(parent)
 
     def _build_ui(self) -> None:
@@ -98,70 +85,140 @@ class SettingsScreen(BaseScreen):
         self.tabs = QTabWidget(self)
         self.content_layout.addWidget(self.tabs)
 
-        self._build_api_tab()
+        self._build_model_tab()
         self._build_capture_tab()
         self._build_camera_tab()
         self._build_detection_tab()
         self._build_about_tab()
 
-    def _build_api_tab(self) -> None:
+    def _build_model_tab(self) -> None:
         tab = QWidget(self)
         layout = QVBoxLayout(tab)
         layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(12)
+        layout.setSpacing(14)
 
-        heading = QLabel("Key")
-        heading.setStyleSheet("font-weight: 700;")
+        status_heading = QLabel("Local Model Status")
+        status_heading.setStyleSheet("font-weight: 700; font-size: 12pt;")
 
-        input_row = QHBoxLayout()
-        input_row.setSpacing(10)
+        self.model_status_frame = QFrame(tab)
+        self.model_status_layout = QVBoxLayout(self.model_status_frame)
+        self.model_status_layout.setContentsMargins(12, 10, 12, 10)
+        self.model_status_layout.setSpacing(6)
 
-        self.api_key_input = QLineEdit(tab)
-        self.api_key_input.setObjectName("api_key_input")
-        self.api_key_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self.api_key_input.setPlaceholderText("Enter your Gemini API key (AIza...)")
+        self.model_status_label = QLabel("✗ Model Not Found", self.model_status_frame)
+        self.model_status_label.setStyleSheet("font-size: 10pt; font-weight: 700;")
 
-        self.toggle_api_visibility_btn = QPushButton("Show", tab)
-        self.toggle_api_visibility_btn.setObjectName("secondary")
-        self.toggle_api_visibility_btn.clicked.connect(self._toggle_api_visibility)
+        self.model_arch_label = QLabel("Architecture: -", self.model_status_frame)
+        self.model_eer_label = QLabel("Trained EER: -", self.model_status_frame)
+        self.model_date_label = QLabel("Training Date: -", self.model_status_frame)
+        self.model_datasets_label = QLabel("Datasets Used: -", self.model_status_frame)
+        self.model_pairs_label = QLabel("Total Training Pairs: -", self.model_status_frame)
+        self.model_device_label = QLabel("Inference Device: -", self.model_status_frame)
 
-        input_row.addWidget(self.api_key_input)
-        input_row.addWidget(self.toggle_api_visibility_btn)
+        for item in [
+            self.model_arch_label,
+            self.model_eer_label,
+            self.model_date_label,
+            self.model_datasets_label,
+            self.model_pairs_label,
+            self.model_device_label,
+        ]:
+            item.setStyleSheet("font-size: 9pt;")
 
-        caption = QLabel("Get your free API key at Google AI Studio (aistudio.google.com)")
-        caption.setStyleSheet(f"font-size: 8.5pt; color: {C_TEXT_SECONDARY};")
+        self.model_status_layout.addWidget(self.model_status_label)
+        self.model_status_layout.addWidget(self.model_arch_label)
+        self.model_status_layout.addWidget(self.model_eer_label)
+        self.model_status_layout.addWidget(self.model_date_label)
+        self.model_status_layout.addWidget(self.model_datasets_label)
+        self.model_status_layout.addWidget(self.model_pairs_label)
+        self.model_status_layout.addWidget(self.model_device_label)
 
-        action_row = QHBoxLayout()
-        action_row.setSpacing(10)
+        path_heading = QLabel("Model File Path")
+        path_heading.setStyleSheet("font-weight: 700;")
 
-        self.test_connection_btn = QPushButton("Test Connection", tab)
-        self.test_connection_btn.clicked.connect(self._test_api_connection)
+        path_row = QHBoxLayout()
+        path_row.setSpacing(10)
 
-        self.connection_status_label = QLabel("", tab)
-        self.connection_status_label.setStyleSheet(f"font-size: 9pt; color: {C_TEXT_SECONDARY};")
+        self.model_path_input = QLineEdit(tab)
+        self.model_path_input.setPlaceholderText("Select local .pth model file path")
 
-        action_row.addWidget(self.test_connection_btn)
-        action_row.addWidget(self.connection_status_label, stretch=1)
+        browse_btn = QPushButton("Browse", tab)
+        browse_btn.setObjectName("secondary")
+        browse_btn.clicked.connect(self._browse_model_path)
 
-        model_label = QLabel("Model")
-        model_label.setStyleSheet("font-weight: 700;")
+        self.test_model_btn = QPushButton("Test Model", tab)
+        self.test_model_btn.setStyleSheet(f"QPushButton {{ background: {C_BLUE}; color: white; }}")
+        self.test_model_btn.clicked.connect(self._test_model)
 
-        self.model_selector = QComboBox(tab)
-        self.model_selector.addItems(["gemini-2.5-flash", "gemini-1.5-flash"])
+        path_row.addWidget(self.model_path_input, 1)
+        path_row.addWidget(browse_btn)
+        path_row.addWidget(self.test_model_btn)
 
-        self.save_api_btn = QPushButton("Save API Settings", tab)
-        self.save_api_btn.clicked.connect(self._save_api_settings)
+        self.model_test_status_label = QLabel("", tab)
+        self.model_test_status_label.setStyleSheet(f"font-size: 9pt; color: {C_TEXT_SECONDARY};")
 
-        layout.addWidget(heading)
-        layout.addLayout(input_row)
-        layout.addWidget(caption)
-        layout.addLayout(action_row)
-        layout.addWidget(model_label)
-        layout.addWidget(self.model_selector)
-        layout.addWidget(self.save_api_btn, alignment=Qt.AlignmentFlag.AlignLeft)
+        training_heading = QLabel("Training Instructions")
+        training_heading.setStyleSheet("font-weight: 700;")
+
+        instructions_box = QFrame(tab)
+        instructions_box.setStyleSheet(
+            "background: #E3F2FD; border: 1px solid #90CAF9; border-radius: 8px;"
+        )
+        instructions_layout = QVBoxLayout(instructions_box)
+        instructions_layout.setContentsMargins(10, 10, 10, 10)
+        instructions_layout.setSpacing(5)
+
+        instructions_text = QLabel(
+            "To train the model:\n"
+            "1. Ensure datasets are downloaded (run model_training/dataset_downloader.py)\n"
+            "2. Run model_training/train.py\n"
+            "3. Training takes 8 to 24 hours on GPU or 3 to 7 days on CPU\n"
+            "4. The trained model will be saved automatically"
+        )
+        instructions_text.setWordWrap(True)
+        instructions_text.setStyleSheet("font-size: 9pt; color: #0A1628;")
+
+        open_training_btn = QPushButton("Open Training Folder", tab)
+        open_training_btn.setObjectName("secondary")
+        open_training_btn.clicked.connect(self._open_training_folder)
+
+        instructions_layout.addWidget(instructions_text)
+        instructions_layout.addWidget(open_training_btn, alignment=Qt.AlignmentFlag.AlignLeft)
+
+        inference_heading = QLabel("Inference Device")
+        inference_heading.setStyleSheet("font-weight: 700;")
+
+        self.inference_device_combo = QComboBox(tab)
+        self.inference_device_combo.addItem("Auto-detect (recommended)", "auto")
+        self.inference_device_combo.addItem("CPU only", "cpu")
+        self.inference_device_combo.addItem("CUDA GPU", "cuda")
+
+        cuda_text = "CUDA devices: None detected"
+        if torch.cuda.is_available():
+            cuda_devices = [torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())]
+            cuda_text = "CUDA devices: " + ", ".join(cuda_devices)
+
+        self.cuda_devices_label = QLabel(cuda_text, tab)
+        self.cuda_devices_label.setStyleSheet(f"font-size: 8.5pt; color: {C_TEXT_SECONDARY};")
+        self.cuda_devices_label.setWordWrap(True)
+
+        self.save_model_settings_btn = QPushButton("Save Model Settings", tab)
+        self.save_model_settings_btn.clicked.connect(self._save_model_settings)
+
+        layout.addWidget(status_heading)
+        layout.addWidget(self.model_status_frame)
+        layout.addWidget(path_heading)
+        layout.addLayout(path_row)
+        layout.addWidget(self.model_test_status_label)
+        layout.addWidget(training_heading)
+        layout.addWidget(instructions_box)
+        layout.addWidget(inference_heading)
+        layout.addWidget(self.inference_device_combo)
+        layout.addWidget(self.cuda_devices_label)
+        layout.addWidget(self.save_model_settings_btn, alignment=Qt.AlignmentFlag.AlignLeft)
         layout.addStretch(1)
 
-        self.tabs.addTab(tab, "API Settings")
+        self.tabs.addTab(tab, "🤖 Model Settings")
 
     def _build_capture_tab(self) -> None:
         tab = QWidget(self)
@@ -475,58 +532,150 @@ class SettingsScreen(BaseScreen):
 
         self.show_error("Upgrade Failed", message)
 
-    def _toggle_api_visibility(self) -> None:
-        if self.api_key_input.echoMode() == QLineEdit.EchoMode.Password:
-            self.api_key_input.setEchoMode(QLineEdit.EchoMode.Normal)
-            self.toggle_api_visibility_btn.setText("Hide")
+    def _get_inference_device_label(self, preference: str) -> str:
+        normalized = str(preference or "auto").strip().lower()
+        if normalized == "cpu":
+            return "CPU"
+        if normalized == "cuda":
+            if torch.cuda.is_available():
+                return f"CUDA - {torch.cuda.get_device_name(0)}"
+            return "CPU (CUDA unavailable)"
+        if torch.cuda.is_available():
+            return f"CUDA - {torch.cuda.get_device_name(0)}"
+        return "CPU"
+
+    def _refresh_model_status_panel(self) -> None:
+        from services.local_model_service import LocalModelService
+
+        service = LocalModelService()
+        ready, message = service.ping()
+
+        metadata = {}
+        try:
+            metadata = service.get_model_info()
+        except Exception:
+            metadata = {}
+
+        if ready:
+            self.model_status_frame.setStyleSheet(
+                "background: #E8F5E9; border: 1px solid #81C784; border-radius: 8px;"
+            )
+            self.model_status_label.setText("✓ Model Ready")
+            self.model_status_label.setStyleSheet("font-size: 10pt; font-weight: 700; color: #2E7D32;")
         else:
-            self.api_key_input.setEchoMode(QLineEdit.EchoMode.Password)
-            self.toggle_api_visibility_btn.setText("Show")
+            self.model_status_frame.setStyleSheet(
+                "background: #FFEBEE; border: 1px solid #EF9A9A; border-radius: 8px;"
+            )
+            self.model_status_label.setText("✗ Model Not Found")
+            self.model_status_label.setStyleSheet("font-size: 10pt; font-weight: 700; color: #C62828;")
 
-    def _test_api_connection(self) -> None:
-        api_key = self.api_key_input.text().strip()
-        valid, message = validate_api_key(api_key)
-        if not valid:
-            self.connection_status_label.setText(f"✗ {message}")
-            self.connection_status_label.setStyleSheet("color: #C62828; font-size: 9pt;")
-            return
+        architecture = str(metadata.get("model_architecture", "SiameseResNet50-v1.0") or "SiameseResNet50-v1.0")
 
-        self.connection_status_label.setText("Testing connection...")
-        self.connection_status_label.setStyleSheet(f"color: {C_TEXT_SECONDARY}; font-size: 9pt;")
-        self.test_connection_btn.setEnabled(False)
-        self.test_connection_btn.setText("Testing...")
+        eer_value = metadata.get("training_eer")
+        eer_text = "-"
+        if eer_value is not None:
+            try:
+                numeric = float(eer_value)
+                if numeric <= 1.0:
+                    numeric *= 100.0
+                eer_text = f"{numeric:.2f}%"
+            except (TypeError, ValueError):
+                eer_text = str(eer_value)
 
-        self._api_worker = APIConnectionWorker(api_key)
-        self._api_worker.completed.connect(self._handle_api_test_result)
-        self._api_worker.start()
+        training_date = str(metadata.get("training_date", "-") or "-")
+        datasets_used = metadata.get("datasets_used", [])
+        if isinstance(datasets_used, list):
+            datasets_text = f"{len(datasets_used)} datasets"
+        else:
+            datasets_text = "-"
 
-    def _handle_api_test_result(self, success: bool, message: str) -> None:
+        total_pairs = metadata.get("total_training_pairs", 0)
+        try:
+            total_pairs_text = f"{int(total_pairs):,}"
+        except (TypeError, ValueError):
+            total_pairs_text = "-"
+
+        preference = self.controller.get_inference_device()
+        device_label = self._get_inference_device_label(preference)
+
+        self.model_arch_label.setText(f"Architecture: {architecture}")
+        self.model_eer_label.setText(f"Trained EER: {eer_text}")
+        self.model_date_label.setText(f"Training Date: {training_date}")
+        self.model_datasets_label.setText(f"Datasets Used: {datasets_text}")
+        self.model_pairs_label.setText(f"Total Training Pairs: {total_pairs_text}")
+        self.model_device_label.setText(f"Inference Device: {device_label}")
+
+        if ready:
+            self.model_test_status_label.setText("✓ Model loaded and ready")
+            self.model_test_status_label.setStyleSheet("color: #2E7D32; font-size: 9pt; font-weight: 600;")
+        else:
+            self.model_test_status_label.setText(f"✗ {message}")
+            self.model_test_status_label.setStyleSheet("color: #C62828; font-size: 9pt; font-weight: 600;")
+
+    def _browse_model_path(self) -> None:
+        current = self.model_path_input.text().strip() or str(Path.cwd())
+        selected_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Model File",
+            current,
+            "PyTorch Model Files (*.pth *.pt)",
+        )
+        if selected_path:
+            self.model_path_input.setText(selected_path)
+
+    def _test_model(self) -> None:
+        self.test_model_btn.setEnabled(False)
+        self.test_model_btn.setText("Testing...")
+        self.model_test_status_label.setText("Testing model...")
+        self.model_test_status_label.setStyleSheet(f"color: {C_TEXT_SECONDARY}; font-size: 9pt;")
+
+        self._model_test_worker = ModelTestWorker()
+        self._model_test_worker.completed.connect(self._handle_model_test_result)
+        self._model_test_worker.start()
+
+    def _handle_model_test_result(self, success: bool, message: str) -> None:
         color = C_SUCCESS if success else "#C62828"
-        self.connection_status_label.setText(message)
-        self.connection_status_label.setStyleSheet(f"color: {color}; font-size: 9pt; font-weight: 600;")
+        self.model_test_status_label.setText(message)
+        self.model_test_status_label.setStyleSheet(f"color: {color}; font-size: 9pt; font-weight: 600;")
 
-        self.test_connection_btn.setEnabled(True)
-        self.test_connection_btn.setText("Test Connection")
+        self.test_model_btn.setEnabled(True)
+        self.test_model_btn.setText("Test Model")
 
-        if self._api_worker is not None:
-            self._api_worker.deleteLater()
-            self._api_worker = None
+        if self._model_test_worker is not None:
+            self._model_test_worker.deleteLater()
+            self._model_test_worker = None
 
-    def _save_api_settings(self) -> None:
-        api_key = self.api_key_input.text().strip()
-        valid, message = validate_api_key(api_key)
-        if not valid:
-            self.show_error("Invalid API Key", message)
-            return
+        self._refresh_model_status_panel()
+        self._notify_main_window_status_refresh()
+
+    def _open_training_folder(self) -> None:
+        training_dir = Path(__file__).resolve().parents[2] / "model_training"
+        training_dir.mkdir(parents=True, exist_ok=True)
 
         try:
-            self.controller.set_api_key(api_key)
-            self.controller.set("gemini_model", self.model_selector.currentText())
-            self.show_success("Settings Saved", "API settings were saved successfully")
-            self._flash_saved(self.save_api_btn, "Save API Settings")
+            if os.name == "nt":
+                os.startfile(str(training_dir))
+            else:
+                QDesktopServices.openUrl(QUrl.fromLocalFile(str(training_dir)))
+        except Exception as exc:
+            self.show_error("Open Folder Failed", str(exc))
+
+    def _save_model_settings(self) -> None:
+        model_path = self.model_path_input.text().strip()
+        if not model_path:
+            self.show_error("Missing Model Path", "Please select a model file path.")
+            return
+
+        inference_device = str(self.inference_device_combo.currentData() or "auto")
+
+        try:
+            self.controller.set_model_path(model_path)
+            self.controller.set_inference_device(inference_device)
+            self._flash_saved(self.save_model_settings_btn, "Save Model Settings")
+            self._refresh_model_status_panel()
             self._notify_main_window_status_refresh()
         except Exception as exc:
-            logger.exception("Failed to save API settings")
+            logger.exception("Failed to save model settings")
             self.show_error("Save Failed", str(exc))
 
     def _populate_monitors(self) -> None:
@@ -545,10 +694,9 @@ class SettingsScreen(BaseScreen):
                     top = monitor.get("top", 0)
                     label = f"Monitor {index} ({width}x{height}) [{left},{top}]"
                     self.monitor_selector.addItem(label, index)
-        except Exception as exc:
+        except Exception:
             logger.exception("Failed to enumerate monitors")
             self.monitor_selector.addItem("Primary Monitor", 1)
-            self.connection_status_label.setText(f"Monitor scan warning: {exc}")
 
     def _save_capture_settings(self) -> None:
         mode = "full_screen"
@@ -667,6 +815,8 @@ class SettingsScreen(BaseScreen):
         window = self.window()
         if hasattr(window, "refresh_status_indicators"):
             window.refresh_status_indicators()
+        if hasattr(window, "update_model_banner"):
+            window.update_model_banner()
         if hasattr(window, "update_api_banner"):
             window.update_api_banner()
 
@@ -674,11 +824,13 @@ class SettingsScreen(BaseScreen):
         _ = kwargs
         logger.info("Settings screen shown")
 
-        self.api_key_input.setText(self.controller.get_api_key())
+        self.model_path_input.setText(self.controller.get_model_path())
 
-        model_name = str(self.controller.get("gemini_model", "gemini-2.5-flash") or "gemini-2.5-flash")
-        model_index = self.model_selector.findText(model_name)
-        self.model_selector.setCurrentIndex(model_index if model_index >= 0 else 0)
+        current_device = self.controller.get_inference_device()
+        idx = self.inference_device_combo.findData(current_device)
+        self.inference_device_combo.setCurrentIndex(idx if idx >= 0 else 0)
+
+        self._refresh_model_status_panel()
 
         self._populate_monitors()
         capture_mode = self.controller.get_capture_mode()

@@ -12,7 +12,7 @@ from utils.logger import get_logger
 logger = get_logger(__name__)
 
 
-class GeminiWorker(QThread):
+class LocalModelWorker(QThread):
     result_ready = pyqtSignal(dict)
     error_occurred = pyqtSignal(str)
     progress_updated = pyqtSignal(str)
@@ -22,46 +22,34 @@ class GeminiWorker(QThread):
         reference_image_path: str,
         submitted_image_path: str,
         person_name: str,
-        api_key: str,
-        mode: str,
     ) -> None:
         super().__init__()
         self.reference_image_path = reference_image_path
         self.submitted_image_path = submitted_image_path
         self.person_name = person_name
-        self.api_key = api_key
-        self.mode = mode
 
     def run(self) -> None:
         try:
-            self.progress_updated.emit("Assessing image quality...")
+            self.progress_updated.emit("Loading local AI model...")
 
-            from services.image_utils import ImageUtils
+            from services.local_model_service import LocalModelService
 
-            image_utils = ImageUtils()
-            reference_quality = image_utils.assess_quality(self.reference_image_path)
-            submitted_quality = image_utils.assess_quality(self.submitted_image_path)
+            service = LocalModelService()
 
-            if reference_quality.overall == "Low" or submitted_quality.overall == "Low":
-                self.progress_updated.emit("Warning: Low quality image detected — results may be less reliable")
-                time.sleep(0.5)
+            self.progress_updated.emit("Preprocessing signature images...")
+            time.sleep(0.2)
 
-            self.progress_updated.emit("Connecting to Gemini AI engine...")
-
-            from services.gemini_service import GeminiService
-
-            gemini_service = GeminiService()
-
-            self.progress_updated.emit("Performing 13-strategy forensic analysis... (this may take 8–15 seconds)")
-            result_dict = gemini_service.verify_signatures(
+            self.progress_updated.emit("Running 13-strategy forensic analysis on local model...")
+            result_dict = service.verify_signatures(
                 self.reference_image_path,
                 self.submitted_image_path,
                 self.person_name,
-                self.mode,
             )
+            self.progress_updated.emit("Computing forensic observations...")
+            time.sleep(0.3)
             self.result_ready.emit(result_dict)
         except Exception as exc:
-            self.error_occurred.emit(str(exc))
+            self.error_occurred.emit(f"Local model inference failed: {str(exc)}")
 
 
 class DetectionWorker(QThread):

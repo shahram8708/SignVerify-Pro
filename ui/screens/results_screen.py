@@ -115,10 +115,10 @@ class ResultsScreen(BaseScreen):
                         child_widget.deleteLater()
 
     def _format_model_name(self, model_name: str) -> str:
-        normalized = (model_name or "gemini-2.5-flash").strip().lower()
-        if normalized == "gemini-2.5-flash":
-            return "SignVerify Pro"
-        return model_name
+        value = (model_name or "SignVerify-SiameseResNet50-v1.0").strip()
+        if not value:
+            return "SignVerify-SiameseResNet50-v1.0"
+        return value
 
     def _quality_text(self, result_dict: dict) -> str:
         quality = result_dict.get("image_quality")
@@ -194,7 +194,7 @@ class ResultsScreen(BaseScreen):
 
         verified_at = verification.verified_at if verification.verified_at else datetime.now()
         timestamp_text = verified_at.strftime("%d %b %Y, %H:%M")
-        model_used = self._format_model_name(str(result_dict.get("model_used", "gemini-2.5-flash")))
+        model_used = self._format_model_name(str(result_dict.get("model_used", "SignVerify-SiameseResNet50-v1.0")))
 
         header_row = QWidget(self.scroll_container)
         header_layout = QHBoxLayout(header_row)

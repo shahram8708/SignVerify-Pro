@@ -7,12 +7,12 @@ import json
 import os
 
 from controllers.database_controller import database_controller
-from controllers.settings_controller import settings_controller
 from models.verification import Verification
 from services.image_utils import ImageUtils, QualityResult
+from services.local_model_service import LocalModelService
 from utils.licence_manager import LicenceManager
 from utils.logger import get_logger
-from utils.thread_workers import GeminiWorker
+from utils.thread_workers import LocalModelWorker
 
 logger = get_logger("verification_controller")
 
@@ -35,7 +35,7 @@ class VerificationController:
         person_id: int | None = None,
         person_name: str | None = None,
         parent_widget=None,
-    ) -> GeminiWorker | None:
+    ) -> LocalModelWorker | None:
         if not os.path.exists(reference_image_path):
             raise FileNotFoundError(f"Reference image not found: {reference_image_path}")
         if not os.path.exists(submitted_image_path):
@@ -54,9 +54,12 @@ class VerificationController:
                 self.logger.warning(message)
             return None
 
-        api_key = settings_controller.get_api_key().strip()
-        if not api_key:
-            raise ValueError("Gemini API key not configured. Please configure it in Settings.")
+        model_service = LocalModelService()
+        model_ready, _message = model_service.ping()
+        if not model_ready:
+            raise ValueError(
+                "The signature verification model is not installed. Please contact your system administrator to install the model file (signverify_model.pth) in the models/ directory."
+            )
 
         self.logger.info(
             "Starting verification mode=%s reference=%s submitted=%s",
@@ -65,12 +68,10 @@ class VerificationController:
             submitted_image_path,
         )
 
-        worker = GeminiWorker(
+        worker = LocalModelWorker(
             reference_image_path=reference_image_path,
             submitted_image_path=submitted_image_path,
             person_name=person_name or "",
-            api_key=api_key,
-            mode=normalized_mode,
         )
         return worker
 

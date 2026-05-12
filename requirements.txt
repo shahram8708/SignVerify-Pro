@@ -1,6 +1,5 @@
 PyQt6
 SQLAlchemy
-google-genai
 opencv-python-headless
 Pillow
 mss
@@ -11,3 +10,15 @@ pyinstaller
 python-dotenv
 pywin32
 psutil
+torch
+torchvision
+torchaudio
+scikit-learn
+scipy
+tqdm
+albumentations
+pandas
+matplotlib
+seaborn
+gdown
+kaggle

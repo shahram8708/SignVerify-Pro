@@ -54,7 +54,7 @@ class ModeBScreen(BaseScreen):
         self.person = None
         self.submitted_image_path: str | None = None
         self.capture_mode_used = "B_UPLOAD"
-        self.gemini_worker = None
+        self.local_model_worker = None
         self.reference_image_path: str = ""
 
         super().__init__(parent)
@@ -550,7 +550,7 @@ class ModeBScreen(BaseScreen):
         self.show_loading("Initiating AI verification...")
         try:
             controller = VerificationController()
-            self.gemini_worker = controller.start_verification(
+            self.local_model_worker = controller.start_verification(
                 reference_path,
                 self.submitted_image_path,
                 mode=self.capture_mode_used,
@@ -558,14 +558,14 @@ class ModeBScreen(BaseScreen):
                 person_name=self.person_name,
                 parent_widget=self,
             )
-            if self.gemini_worker is None:
+            if self.local_model_worker is None:
                 self.hide_loading()
                 return
 
-            self.gemini_worker.result_ready.connect(self._on_verification_complete)
-            self.gemini_worker.error_occurred.connect(self._on_verification_error)
-            self.gemini_worker.progress_updated.connect(lambda msg: self.show_loading(msg))
-            self.gemini_worker.start()
+            self.local_model_worker.result_ready.connect(self._on_verification_complete)
+            self.local_model_worker.error_occurred.connect(self._on_verification_error)
+            self.local_model_worker.progress_updated.connect(lambda msg: self.show_loading(msg))
+            self.local_model_worker.start()
         except Exception as exc:
             self.hide_loading()
             logger.exception("Mode B verification start failed")

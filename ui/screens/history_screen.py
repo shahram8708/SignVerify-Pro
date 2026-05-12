@@ -300,7 +300,7 @@ class HistoryScreen(BaseScreen):
         result_dict["confidence"] = float(verification.confidence or 0.0)
         result_dict["reason"] = verification.reason or ""
         result_dict["observations"] = observations
-        result_dict.setdefault("model_used", "gemini-2.5-flash")
+        result_dict.setdefault("model_used", "SignVerify-SiameseResNet50-v1.0")
         result_dict.setdefault("raw_response", verification.raw_response_json or "")
 
         person = (

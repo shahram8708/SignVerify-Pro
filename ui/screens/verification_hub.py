@@ -524,7 +524,7 @@ class VerificationHubScreen(BaseScreen):
             "confidence": 0.87,
             "reason": reason,
             "observations": observations,
-            "model_used": "gemini-2.5-flash",
+            "model_used": "SignVerify-SiameseResNet50-v1.0",
             "analysis_time_sec": 11.2,
             "image_quality": "High",
         }

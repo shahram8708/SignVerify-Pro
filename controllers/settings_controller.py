@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import os
 from datetime import datetime
+from pathlib import Path
 
 from sqlalchemy import select, text
 
+from config import BASE_DIR
 from database.db_manager import SessionLocal
 from models.settings_model import Setting
 from services import encryption_service
@@ -85,11 +87,24 @@ class SettingsController:
             logger.exception("Failed to delete setting")
             raise RuntimeError(f"Failed to delete setting '{key}': {exc}") from exc
 
-    def get_api_key(self) -> str:
-        return str(self.get("gemini_api_key", "") or "")
+    def get_model_path(self) -> str:
+        default_path = str((Path(BASE_DIR) / "models" / "signverify_model.pth").resolve())
+        return str(self.get("model_path", default_path) or default_path)
 
-    def set_api_key(self, key: str) -> None:
-        self.set("gemini_api_key", key, encrypted=True)
+    def set_model_path(self, path: str) -> None:
+        self.set("model_path", str(path or "").strip())
+
+    def get_inference_device(self) -> str:
+        value = str(self.get("inference_device", "auto") or "auto").strip().lower()
+        if value not in {"auto", "cpu", "cuda"}:
+            return "auto"
+        return value
+
+    def set_inference_device(self, device: str) -> None:
+        normalized = str(device or "auto").strip().lower()
+        if normalized not in {"auto", "cpu", "cuda"}:
+            normalized = "auto"
+        self.set("inference_device", normalized)
 
     def get_capture_mode(self) -> str:
         return str(self.get("capture_mode", "full_screen") or "full_screen")

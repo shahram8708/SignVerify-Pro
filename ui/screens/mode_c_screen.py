@@ -52,7 +52,7 @@ class ModeCScreen(BaseScreen):
     def __init__(self, parent=None) -> None:
         self.image_path_1: str | None = None
         self.image_path_2: str | None = None
-        self.gemini_worker = None
+        self.local_model_worker = None
         self.slot_widgets: dict[int, dict] = {}
 
         super().__init__(parent)
@@ -419,7 +419,7 @@ class ModeCScreen(BaseScreen):
         self.show_loading("Initiating ad-hoc forensic comparison...")
         try:
             controller = VerificationController()
-            self.gemini_worker = controller.start_verification(
+            self.local_model_worker = controller.start_verification(
                 self.image_path_1,
                 self.image_path_2,
                 mode="C_ADHOC",
@@ -427,14 +427,14 @@ class ModeCScreen(BaseScreen):
                 person_name=None,
                 parent_widget=self,
             )
-            if self.gemini_worker is None:
+            if self.local_model_worker is None:
                 self.hide_loading()
                 return
 
-            self.gemini_worker.result_ready.connect(self._on_verification_complete)
-            self.gemini_worker.error_occurred.connect(self._on_verification_error)
-            self.gemini_worker.progress_updated.connect(lambda msg: self.show_loading(msg))
-            self.gemini_worker.start()
+            self.local_model_worker.result_ready.connect(self._on_verification_complete)
+            self.local_model_worker.error_occurred.connect(self._on_verification_error)
+            self.local_model_worker.progress_updated.connect(lambda msg: self.show_loading(msg))
+            self.local_model_worker.start()
         except Exception as exc:
             self.hide_loading()
             logger.exception("Mode C verification start failed")

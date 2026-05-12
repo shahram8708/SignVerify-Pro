@@ -40,17 +40,6 @@ def validate_image_path(path: str) -> tuple[bool, str]:
     return True, ""
 
 
-def validate_api_key(key: str) -> tuple[bool, str]:
-    candidate = (key or "").strip()
-    if not candidate:
-        return False, "API key is required"
-    if len(candidate) < 20:
-        return False, "API key must be at least 20 characters"
-    if not candidate.startswith("AIza"):
-        return False, "API key must start with 'AIza'"
-    return True, ""
-
-
 def validate_confidence(value: float) -> tuple[bool, str]:
     try:
         numeric = float(value)

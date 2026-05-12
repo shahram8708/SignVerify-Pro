@@ -38,7 +38,6 @@ from config import (
 )
 from controllers.database_controller import database_controller
 from controllers.navigation_controller import NavigationController
-from controllers.settings_controller import settings_controller
 from controllers.verification_controller import VerificationController
 from services.window_capture_worker import CaptureWorker
 from services.window_enumerator import WINDOW_CLOSED_SENTINEL, WindowInfo
@@ -147,7 +146,7 @@ class ModeAScreen(BaseScreen):
         self.cropped_image_path: str | None = None
         self.current_step = 1
         self.detection_worker = None
-        self.gemini_worker = None
+        self.local_model_worker = None
         self.capture_worker: CaptureWorker | None = None
         self.current_quality = None
         self.reference_image_path: str = ""
@@ -619,32 +618,32 @@ class ModeAScreen(BaseScreen):
         )
 
         info = QLabel(
-            "Ready to perform 13-strategy forensic analysis using Google SignVerify Pro. "
-            "Typical analysis time: 8–15 seconds.",
+            "Ready to perform 13-strategy forensic analysis using the local offline SignVerify Pro model. "
+            "Typical analysis time: 2–8 seconds depending on hardware.",
             summary_frame,
         )
         info.setWordWrap(True)
         info.setStyleSheet(f"font-size: 9pt; color: {C_TEXT_SECONDARY};")
 
-        self.api_warning_frame = QFrame(summary_frame)
-        self.api_warning_frame.setStyleSheet(
+        self.model_warning_frame = QFrame(summary_frame)
+        self.model_warning_frame.setStyleSheet(
             f"background: {C_GOLD}; border-radius: 8px; border: 1px solid {C_AMBER};"
         )
-        warning_layout = QHBoxLayout(self.api_warning_frame)
+        warning_layout = QHBoxLayout(self.model_warning_frame)
         warning_layout.setContentsMargins(10, 8, 10, 8)
         warning_layout.setSpacing(8)
 
-        warning_label = QLabel(
-            "⚠ No Gemini API key configured. Go to Settings to add your key.",
-            self.api_warning_frame,
+        self.model_warning_label = QLabel(
+            "⚠ Local model is not installed. Go to Settings and configure the model file path.",
+            self.model_warning_frame,
         )
-        warning_label.setStyleSheet(f"color: {C_NAVY}; font-size: 9pt; font-weight: 700;")
+        self.model_warning_label.setStyleSheet(f"color: {C_NAVY}; font-size: 9pt; font-weight: 700;")
 
-        warning_btn = QPushButton("Open Settings", self.api_warning_frame)
+        warning_btn = QPushButton("Open Settings", self.model_warning_frame)
         warning_btn.setObjectName("secondary")
         warning_btn.clicked.connect(lambda: NavigationController.get_instance().navigate_to("settings"))
 
-        warning_layout.addWidget(warning_label, 1)
+        warning_layout.addWidget(self.model_warning_label, 1)
         warning_layout.addWidget(warning_btn)
 
         self.verify_button = QPushButton("🔍 Verify Signature", summary_frame)
@@ -656,7 +655,7 @@ class ModeAScreen(BaseScreen):
         summary_layout.addLayout(image_row)
         summary_layout.addWidget(self.step4_quality_summary)
         summary_layout.addWidget(info)
-        summary_layout.addWidget(self.api_warning_frame)
+        summary_layout.addWidget(self.model_warning_frame)
         summary_layout.addWidget(self.verify_button)
 
         layout.addWidget(title)
@@ -1173,9 +1172,22 @@ class ModeAScreen(BaseScreen):
                 f"background: {C_GREY_LT}; color: {C_TEXT_SECONDARY}; border-radius: 8px; padding: 8px;"
             )
 
-        has_api_key = bool(settings_controller.get_api_key().strip())
-        self.api_warning_frame.setVisible(not has_api_key)
-        self.verify_button.setEnabled(bool(self.cropped_image_path and Path(self.cropped_image_path).exists()))
+        model_ready = False
+        model_message = "Local model is not installed"
+        try:
+            from services.local_model_service import LocalModelService
+
+            model_ready, model_message = LocalModelService().ping()
+        except Exception as exc:
+            model_ready = False
+            model_message = str(exc)
+
+        self.model_warning_label.setText(f"⚠ {model_message}")
+        self.model_warning_frame.setVisible(not model_ready)
+
+        self.verify_button.setEnabled(
+            bool(self.cropped_image_path and Path(self.cropped_image_path).exists() and model_ready)
+        )
 
     def _do_verify(self) -> None:
         if not self.cropped_image_path or not Path(self.cropped_image_path).exists():
@@ -1195,10 +1207,10 @@ class ModeAScreen(BaseScreen):
 
         self.reference_image_path = reference_path
 
-        self.show_loading("Connecting to Gemini AI engine...")
+        self.show_loading("Loading local AI model...")
         try:
             controller = VerificationController()
-            self.gemini_worker = controller.start_verification(
+            self.local_model_worker = controller.start_verification(
                 reference_path,
                 self.cropped_image_path,
                 mode="A_SCREEN",
@@ -1207,14 +1219,14 @@ class ModeAScreen(BaseScreen):
                 parent_widget=self,
             )
 
-            if self.gemini_worker is None:
+            if self.local_model_worker is None:
                 self.hide_loading()
                 return
 
-            self.gemini_worker.result_ready.connect(self._on_verification_complete)
-            self.gemini_worker.error_occurred.connect(self._on_verification_error)
-            self.gemini_worker.progress_updated.connect(lambda msg: self.show_loading(msg))
-            self.gemini_worker.start()
+            self.local_model_worker.result_ready.connect(self._on_verification_complete)
+            self.local_model_worker.error_occurred.connect(self._on_verification_error)
+            self.local_model_worker.progress_updated.connect(lambda msg: self.show_loading(msg))
+            self.local_model_worker.start()
         except Exception as exc:
             self.hide_loading()
             logger.exception("Failed to start verification")

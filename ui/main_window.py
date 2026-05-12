@@ -35,7 +35,6 @@ from config import (
     SCREEN_NAMES,
 )
 from controllers.navigation_controller import NavigationController
-from controllers.settings_controller import settings_controller
 from database.db_manager import SessionLocal
 from models.person import Person
 from ui.screens.database_screen import DatabaseScreen
@@ -75,10 +74,10 @@ class MainWindow(QMainWindow):
         self.screens: dict[str, QWidget] = {}
 
         self.status_operation_label: QLabel | None = None
-        self.api_indicator_label: QLabel | None = None
+        self.model_indicator_label: QLabel | None = None
         self.record_count_label: QLabel | None = None
 
-        self.api_banner: QFrame | None = None
+        self.model_banner: QFrame | None = None
         self.window_controls_bar: QFrame | None = None
 
         self.minimize_button: QPushButton | None = None
@@ -93,7 +92,7 @@ class MainWindow(QMainWindow):
 
         self.navigate_to("home")
         self.refresh_status_indicators()
-        self.update_api_banner()
+        self.update_model_banner()
 
     def _set_window_icon_if_available(self) -> None:
         icon_candidates = ["app.ico", "app.png", "icon.png", "signverify.ico"]
@@ -122,8 +121,8 @@ class MainWindow(QMainWindow):
         self.window_controls_bar = self._build_window_controls_bar(right_container)
         right_layout.addWidget(self.window_controls_bar)
 
-        self.api_banner = self._build_api_banner(right_container)
-        right_layout.addWidget(self.api_banner)
+        self.model_banner = self._build_model_banner(right_container)
+        right_layout.addWidget(self.model_banner)
 
         self.stack = QStackedWidget(right_container)
         right_layout.addWidget(self.stack, stretch=1)
@@ -133,7 +132,7 @@ class MainWindow(QMainWindow):
         self._init_screens()
         self._init_status_bar()
 
-    def _build_api_banner(self, parent: QWidget) -> QFrame:
+    def _build_model_banner(self, parent: QWidget) -> QFrame:
         banner = QFrame(parent)
         banner.setVisible(False)
         banner.setStyleSheet(
@@ -153,7 +152,7 @@ class MainWindow(QMainWindow):
         layout.setSpacing(12)
 
         message = QLabel(
-            "No Gemini API key configured. Go to Settings to add your key.",
+            "Model file not installed. Go to Settings and configure signverify_model.pth.",
             banner,
         )
 
@@ -315,13 +314,13 @@ class MainWindow(QMainWindow):
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(10)
 
-        self.api_indicator_label = QLabel("●", self)
-        self.api_indicator_label.setStyleSheet("color: #9ca3af; font-size: 12pt;")
+        self.model_indicator_label = QLabel("Model: Not Installed ✗", self)
+        self.model_indicator_label.setStyleSheet("color: #ef9a9a; font-size: 9pt; font-weight: 700;")
 
         self.record_count_label = QLabel("0 records in database", self)
         self.record_count_label.setStyleSheet("color: white;")
 
-        right_layout.addWidget(self.api_indicator_label)
+        right_layout.addWidget(self.model_indicator_label)
         right_layout.addWidget(self.record_count_label)
 
         status.addWidget(self.status_operation_label, 1)
@@ -364,15 +363,25 @@ class MainWindow(QMainWindow):
             self.status_operation_label.setText(f"Viewing {friendly_name}")
 
     def refresh_status_indicators(self) -> None:
-        api_key = settings_controller.get_api_key().strip()
+        model_ready = False
+        model_message = "Model not installed"
+        try:
+            from services.local_model_service import LocalModelService
 
-        if self.api_indicator_label is not None:
-            if api_key:
-                self.api_indicator_label.setStyleSheet("color: #2E7D32; font-size: 12pt;")
-                self.api_indicator_label.setToolTip("API key configured")
+            model_ready, model_message = LocalModelService().ping()
+        except Exception as exc:
+            model_ready = False
+            model_message = str(exc)
+
+        if self.model_indicator_label is not None:
+            if model_ready:
+                self.model_indicator_label.setText("Model: Ready ✓")
+                self.model_indicator_label.setStyleSheet("color: #A5D6A7; font-size: 9pt; font-weight: 700;")
+                self.model_indicator_label.setToolTip(model_message)
             else:
-                self.api_indicator_label.setStyleSheet("color: #9ca3af; font-size: 12pt;")
-                self.api_indicator_label.setToolTip("API key not configured")
+                self.model_indicator_label.setText("Model: Not Installed ✗")
+                self.model_indicator_label.setStyleSheet("color: #EF9A9A; font-size: 9pt; font-weight: 700;")
+                self.model_indicator_label.setToolTip(model_message)
 
         if self.sidebar is not None:
             self.sidebar.refresh_licence_tier()
@@ -394,10 +403,21 @@ class MainWindow(QMainWindow):
         if self.record_count_label is not None:
             self.record_count_label.setText(f"{count} records in database")
 
+    def update_model_banner(self) -> None:
+        model_ready = False
+        try:
+            from services.local_model_service import LocalModelService
+
+            model_ready, _ = LocalModelService().ping()
+        except Exception:
+            model_ready = False
+
+        if self.model_banner is not None:
+            self.model_banner.setVisible(not bool(model_ready))
+
     def update_api_banner(self) -> None:
-        api_key = settings_controller.get_api_key().strip()
-        if self.api_banner is not None:
-            self.api_banner.setVisible(not bool(api_key))
+        # Backward compatible alias for older calls.
+        self.update_model_banner()
 
     def changeEvent(self, event) -> None:
         super().changeEvent(event)
